@@ -17,7 +17,5 @@ func main() {
 	mux.HandleFunc("/create", ctrl.Create)
 	mux.HandleFunc("/info/", ctrl.Info)
 	mux.HandleFunc("/nextcard/", ctrl.NextCard)
-	if err := http.ListenAndServe(":8080", mux); err != nil {
-		log.Fatal(err)
-	}
+	log.Fatal(http.ListenAndServe(":8080", mux))
 }

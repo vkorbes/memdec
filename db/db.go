@@ -36,10 +36,7 @@ func IsUnique(db *mgo.Session, deck bson.ObjectId) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if count != 0 {
-		return false, nil
-	}
-	return true, nil
+	return count == 0, nil
 }
 
 func IncrementLastShown(db *mgo.Session, deck models.Deck) error {

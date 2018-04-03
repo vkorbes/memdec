@@ -13,33 +13,31 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-type Controller struct {
+type controller struct {
 	DB *mgo.Session
 }
 
-func NewController(db *mgo.Session) *Controller {
-	return &Controller{
+func NewController(db *mgo.Session) *controller {
+	return &controller{
 		DB: db,
 	}
 }
 
-func (c *Controller) ListAllDecks(response http.ResponseWriter, request *http.Request) {
+func (c *controller) ListAllDecks(response http.ResponseWriter, request *http.Request) {
 	items, err := db.GetAllDecks(c.DB)
 	if err != nil {
 		panic(nil)
 	}
-	response.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(response).Encode(items)
+	writeJSON(response, http.StatusOK, items)
 }
 
-func (c *Controller) Info(response http.ResponseWriter, request *http.Request) {
+func (c *controller) Info(response http.ResponseWriter, request *http.Request) {
 	id := path.Base(request.URL.Path)
 	deck := c.fetchDeck(id)
-	response.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(response).Encode(&deck)
+	writeJSON(response, http.StatusOK, deck)
 }
 
-func (c *Controller) fetchDeck(id string) models.Deck {
+func (c *controller) fetchDeck(id string) models.Deck {
 	if !bson.IsObjectIdHex(id) {
 		panic("invalid ID")
 	}
@@ -50,48 +48,42 @@ func (c *Controller) fetchDeck(id string) models.Deck {
 	return deck
 }
 
-func (c *Controller) NextCard(response http.ResponseWriter, request *http.Request) {
+const cardsInDeck = 52
+
+func (c *controller) NextCard(response http.ResponseWriter, request *http.Request) {
 	id := path.Base(request.URL.Path)
 	deck := c.fetchDeck(id)
-	if deck.LastShownIndex == 52 {
-		message := struct {
-			Remaining int `json:"remaining"`
-		}{0}
-		response.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(response).Encode(&message)
-		return
-	}
-	nextCard := deck.Cards[deck.LastShownIndex]
-	err := db.IncrementLastShown(c.DB, deck)
-	if err != nil {
-		panic(err)
+	var nextCard interface{}
+	var cardsRemaining int
+	if deck.LastShownIndex != cardsInDeck {
+		nextCard = deck.Cards[deck.LastShownIndex]
+		err := db.IncrementLastShown(c.DB, deck)
+		if err != nil {
+			panic(err)
+		}
+		cardsRemaining = cardsInDeck - (deck.LastShownIndex + 1)
 	}
 	message := struct {
-		Card      models.Card `json:"card"`
+		Card      interface{} `json:"card,omitempty"`
 		Remaining int         `json:"remaining"`
-	}{nextCard, 52 - (deck.LastShownIndex + 1)}
-	response.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(response).Encode(&message)
+	}{nextCard, cardsRemaining}
+	writeJSON(response, http.StatusOK, message)
 }
 
-func (c *Controller) Create(response http.ResponseWriter, request *http.Request) {
+func (c *controller) Create(response http.ResponseWriter, request *http.Request) {
 	newDeck := c.freshDeck()
 	err := db.AddDeck(c.DB, newDeck)
 	if err != nil {
 		panic(err)
 	}
-	response.Header().Set("Content-Type", "application/json")
-	response.WriteHeader(http.StatusCreated)
-	json.NewEncoder(response).Encode(&newDeck.DeckID)
+	writeJSON(response, http.StatusCreated, newDeck.DeckID)
 }
 
 var suits = []string{"♥", "♣", "♦", "♠"}
 var numbers = []string{"A", "2", "3", "4", "5", "6", "7", "8", "9", "X", "J", "Q", "K"}
 
-func (c *Controller) freshDeck() models.Deck {
-	newDeck := models.Deck{}
-	newDeck.LastShownIndex = 0
-	newDeck.DeckID = c.newID()
+func (c *controller) freshDeck() models.Deck {
+	newDeck := models.Deck{DeckID: c.newID()}
 	for _, suit := range suits {
 		for _, number := range numbers {
 			newCard := models.Card{Suit: suit, Number: number}
@@ -102,11 +94,12 @@ func (c *Controller) freshDeck() models.Deck {
 			j := randomSeed.Intn(i + 1)
 			newDeck.Cards[i], newDeck.Cards[j] = newDeck.Cards[j], newDeck.Cards[i]
 		}
+		// rand.Shuffle
 	}
 	return newDeck
 }
 
-func (c *Controller) newID() bson.ObjectId {
+func (c *controller) newID() bson.ObjectId {
 	for {
 		new := bson.NewObjectId()
 		unique, err := db.IsUnique(c.DB, new)
@@ -116,5 +109,18 @@ func (c *Controller) newID() bson.ObjectId {
 		if unique {
 			return new
 		}
+	}
+}
+
+func writeJSON(response http.ResponseWriter, statusCode int, content interface{}) {
+	response.Header().Set("Content-Type", "application/json")
+	response.WriteHeader(http.StatusCreated)
+	sb, err := json.Marshal(content)
+	if err != nil {
+		panic(err)
+	}
+	_, err = response.Write(sb)
+	if err != nil {
+		panic(err)
 	}
 }
